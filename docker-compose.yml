@@ -1,0 +1,62 @@
+﻿version: "3.8"
+
+services:
+  db:
+    image: mariadb
+    restart: always
+    env_file:
+      - db.env
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DBPW}
+    volumes:
+      - db_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    restart: always
+    env_file:
+      - db.env
+    depends_on:
+      - db
+    ports:
+      - "80:80"
+    environment:
+      PMA_HOST: db
+      MYSQL_ROOT_PASSWORD: ${DBPW}
+  flaskapp:
+    build: ./backend
+    restart: always
+    env_file:
+      - db.env
+    depends_on:
+      - db
+    volumes:
+      - static_data:/app/backend/static
+    ports:
+      - "5000:5000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+
+  redis:
+    image: redis
+    restart: always
+    depends_on:
+      - db
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  vue-frontend:
+    build: ./frontend
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    volumes:
+      - ./my-nginx-config:/etc/nginx/conf.d
+
+volumes:
+  db_data:
+  redis_data:
+  static_data:

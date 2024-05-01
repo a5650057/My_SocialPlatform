@@ -1,0 +1,10 @@
+﻿huh_env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+.env.local
+test.py
+example.env.
+db.env
