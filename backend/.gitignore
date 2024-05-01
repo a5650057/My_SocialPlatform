@@ -3,7 +3,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-
+myvenv/
 .env.local
 test.py
 example.env.
