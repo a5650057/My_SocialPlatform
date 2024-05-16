@@ -12,13 +12,29 @@ import pymysql
 from pymysql.cursors import DictCursor
 from dbutils.pooled_db import PooledDB
 from dotenv import load_dotenv
+import argparse
 
-# 加载环境变量
-dotenv_path = os.path.join('../../db.env')
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--dev', action='store_true', help='use development settings')
+args = parser.parse_args()
+
+if args.dev:
+    dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', 'db_local.env')
+else:
+    dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', 'db.env')
+
 load_dotenv(dotenv_path=dotenv_path)
 
+# print(f"DBHOST_LOCAL: {os.getenv('DBHOST_LOCAL')}")
+# print(f"DBHOST_DOCKER: {os.getenv('DBHOST_DOCKER')}")
+# print(f"DBUSER: {os.getenv('DBUSER')}")
+# print(f"DBPW: {os.getenv('DBPW')}")
+# print(f"DB_NAME: {os.getenv('DB_NAME')}")
 
-# 初始化数据库连接池
+
+
+
 pool = PooledDB(
     creator=pymysql,
     maxconnections=6,
@@ -27,12 +43,14 @@ pool = PooledDB(
     blocking=True,
     maxusage=None,
     ping=0,
-    host=os.getenv("DBHOST"),
+    host=os.getenv('DBHOST_LOCAL') if args.dev else os.getenv('DBHOST_DOCKER'),
     user=os.getenv("DBUSER"),
     password=os.getenv("DBPW"),
     database=os.getenv("DB_NAME"),
     charset='utf8'
 )
+
+
 
 def db_connection():
     return pool.connection()

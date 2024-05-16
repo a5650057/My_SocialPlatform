@@ -4,9 +4,18 @@ from flask_cors import CORS
 from flask_restful import Api
 
 from routes.posts import posts
+import os
 
 from routes.users import users
 from routes.huh import huh
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--dev', action='store_true', help='use development settings')
+args = parser.parse_args()
+
+
+
 
 app = Flask(__name__)
 CORS(app)
@@ -21,4 +30,4 @@ app.register_blueprint(posts, url_prefix="/posts")
 
 if __name__ == "__main__":
 
-    app.run(debug=True)
+    app.run(debug=args.dev)

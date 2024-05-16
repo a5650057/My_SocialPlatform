@@ -1,4 +1,5 @@
 ﻿import redis
+import argparse
 
 class RedisManager:
     def __init__(self):
@@ -6,10 +7,17 @@ class RedisManager:
         self.initialize_redis()
 
     def initialize_redis(self):
+        # 解析命令行參數
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--dev', action='store_true', help='use development settings')
+        args, unknown = parser.parse_known_args()
+
         try:
-            self.redis_client = redis.Redis(host='redis', port=6379, db=0)
-           
-            # self.redis_client = redis.Redis(host=os.getenv('REDIS_HOST', 'localhost'), port=os.getenv('REDIS_PORT', 6379), db=0)
+            if args.dev:
+                self.redis_client = redis.Redis(host='localhost', port=6379, db=0)
+            else:
+                self.redis_client = redis.Redis(host='redis', port=6379, db=0)
+
             self.redis_client.ping()
             print("Connected to Redis")
         except redis.exceptions.ConnectionError:
