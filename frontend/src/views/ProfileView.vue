@@ -32,6 +32,9 @@
             <v-btn @click="logout" color="grey" class="ml-5">登出</v-btn>
           </v-card-actions>
         </v-card>
+        <div v-if="loading" class="text-center">
+          <v-progress-circular indeterminate></v-progress-circular>
+        </div>
       </v-col>
     </v-row>
   </v-container>
@@ -43,21 +46,24 @@ export default {
   data() {
     return {
       recommendedUsers: [],
+      followingUsers: [], // 確保 followingUsers 初始化為空數組
       errorMsg: "",
+      loading: false,
     };
   },
 
   created() {
     this.fetchFollowingUsers();
-
     this.fetchRecommendedUsers();
   },
   methods: {
     fetchRecommendedUsers() {
+      this.loading = true;
       this.$http
         .get("/users/recommended_users")
         .then((response) => {
           this.recommendedUsers = response.data;
+          this.loading = false;
         })
         .catch((error) => {
           console.error(
@@ -68,6 +74,7 @@ export default {
             error.response && error.response.data
               ? error.response.data.error
               : "HUH?";
+          this.loading = false;
         });
     },
     followUser(followedEmail) {
@@ -96,10 +103,11 @@ export default {
       this.$http
         .get("/users/following")
         .then((response) => {
-          this.followingUsers = response.data;
+          this.followingUsers = response.data.map(user => user.email); // 確保 followingUsers 為 email 的數組
         })
         .catch((error) => {
           console.error("Error fetching following users: ", error);
+          this.followingUsers = []; // 確保出現錯誤時仍然是空數組
         });
     },
 
@@ -115,7 +123,7 @@ export default {
           await Vue.$toast.success("取消追蹤成功");
         })
         .catch((error) => {
-          console.error("取消追蹤失败: ", error);
+          console.error("取消追蹤失敗: ", error);
           this.errorMsg =
             error.response && error.response.data
               ? error.response.data.error
@@ -124,7 +132,7 @@ export default {
     },
 
     isFollowing(email) {
-      return this.followingUsers.includes(email);
+      return this.followingUsers && this.followingUsers.includes(email);
     },
 
     logout() {
