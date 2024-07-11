@@ -44,7 +44,7 @@ export default {
           localStorage.setItem("userEmail", this.email);
 
           console.log(response.data);
-          this.$router.push("/profile");
+          this.$router.push("/lobby");
           Vue.$toast.success("登入成功");
         })
         .catch((error) => {
