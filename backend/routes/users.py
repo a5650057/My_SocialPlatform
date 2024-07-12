@@ -180,7 +180,7 @@ def login():
             "secret",
             algorithm="HS256",
         )
-        return jsonify({"token": token})
+        return jsonify({"token": token, "username": user["username"]})
     else:
         print("login failed")
         return jsonify({"status": "login failed"}), 401

@@ -33,10 +33,9 @@ export default new Router({
       component : LobbyView
     },
     {
-      path: '/profile',
+      path: '/profile/:username', // 这里使用username参数
       name: 'ProfileView',
-      component : ProfileView
+      component: ProfileView,
     }
-    
   ]
 })

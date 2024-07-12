@@ -7,9 +7,9 @@
             <div v-if="errorMsg" style="color: red">{{ errorMsg }}</div>
             <v-list class="v-list-custom-scrollbar">
               <v-list-item v-for="user in recommendedUsers" :key="user.email">
-                <v-list-item-content>
-                  <v-list-item-title>{{ user.username }}</v-list-item-title>
-                </v-list-item-content>
+  <v-list-item-content @click="$router.push(`/profile/${user.username}`)" style="cursor: pointer;">
+    <v-list-item-title>{{ user.username }}</v-list-item-title>
+  </v-list-item-content>
   
                 <v-btn
                   @click="followUser(user.email)"

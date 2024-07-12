@@ -31,7 +31,9 @@ class PostService:
                 unique_filename = f"{uuid4()}{extension}"
                 image_path = os.path.join(current_app.root_path, 'static/images', unique_filename)
                 image.save(image_path)
-                image_url = url_for('static', filename=f'images/{unique_filename}', _external=True)
+                
+                image_url = f"http://127.0.0.1:5000/static/images/{unique_filename}"
+
                 images_urls.append(image_url)
                 cursor.execute('INSERT INTO post_images (post_id, image_url) VALUES (%s, %s)', (post_id, image_url))
         return images_urls

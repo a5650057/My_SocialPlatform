@@ -42,6 +42,8 @@ export default {
         .then((response) => {
           localStorage.setItem("token", response.data.token);
           localStorage.setItem("userEmail", this.email);
+          localStorage.setItem("username", response.data.username); 
+
 
           console.log(response.data);
           this.$router.push("/lobby");

@@ -32,6 +32,7 @@ services:
       - db
     volumes:
       - static_data:/app/static
+      - ./backend:/app  # 確保本地代碼映射到容器中
     ports:
       - "5000:5000"
     environment:
@@ -53,6 +54,7 @@ services:
       - "8080:8080"
     restart: unless-stopped
     volumes:
+      - ./frontend:/app
       - ./my-nginx-config:/etc/nginx/conf.d
 
 volumes:

@@ -34,8 +34,6 @@ CORS(posts)
 
 
 
-
-
 @posts.route('/posts', methods=['GET'])
 @token_required
 def get_posts(current_user_email):
@@ -44,18 +42,27 @@ def get_posts(current_user_email):
 
     feed_key = f'feed:{current_user_email}'
     post_ids = redis_client.lrange(feed_key, 0, -1)
-    posts = [] 
+    posts = []
 
-    # 检查并收集来自Redis的帖子数据
+    # 檢查並收集來自Redis的帖子數據
     for post_id in post_ids:
         post_data = redis_client.hgetall(f'post:{post_id.decode("utf-8")}')
         if post_data:
             post = {k.decode('utf-8'): v.decode('utf-8') for k, v in post_data.items()}
-            # 确保 images_urls 始终是数组
             post['images_urls'] = json.loads(post['images_urls']) if 'images_urls' in post and post['images_urls'] else []
+            # 獲取該帖子的評論
+            cursor.execute('''
+                SELECT c.id, c.user_email, c.content, c.created_at, u.username
+                FROM comments AS c
+                JOIN users AS u ON c.user_email = u.email
+                WHERE c.post_id = %s
+                ORDER BY c.created_at ASC
+            ''', (post_id,))
+            comments = cursor.fetchall()
+            post['comments'] = comments
             posts.append(post)
 
-    # 获取当前用户及其关注的人的email列表
+    # 獲取當前用戶及其關注的人的email列表
     cursor.execute(
         '''
         SELECT followed_id FROM follows WHERE follower_id = %s
@@ -77,23 +84,34 @@ def get_posts(current_user_email):
     cursor.execute(query, params)
     additional_posts = cursor.fetchall()
 
-    # 处理并更新缺失的帖子数据
+    # 處理並更新缺失的帖子數據
     for post in additional_posts:
         post_id = post['id']
         cursor.execute('SELECT image_url FROM post_images WHERE post_id = %s', (post_id,))
         images = cursor.fetchall()
         post['images_urls'] = [image['image_url'] for image in images]
+        # 獲取該帖子的評論
+        cursor.execute('''
+            SELECT c.id, c.user_email, c.content, c.created_at, u.username
+            FROM comments AS c
+            JOIN users AS u ON c.user_email = u.email
+            WHERE c.post_id = %s
+            ORDER BY c.created_at ASC
+        ''', (post_id,))
+        comments = cursor.fetchall()
+        post['comments'] = comments
 
         post_info = {k: str(v) if not isinstance(v, datetime) else v.strftime('%Y-%m-%d %H:%M:%S') for k, v in post.items()}
         post_info['images_urls'] = post['images_urls'] 
 
-        # 更新Redis中的数据
+        # 更新Redis中的數據
         redis_client.hset(f'post:{post_info["id"]}', mapping={**post_info, 'images_urls': json.dumps(post_info['images_urls'])})
 
         if post_info['id'] not in [p['id'] for p in posts]:
             posts.append(post_info)
 
     return jsonify(posts)
+
 
 
 
@@ -201,3 +219,84 @@ def delete_post(current_user_email, post_id):
 
     return jsonify({'message': 'Post deleted successfully'}), 200
 
+@posts.route('/comments/add', methods=['POST'])
+@token_required
+def add_comment(current_user_email):
+    conn = db_connection()
+    cursor = conn.cursor(DictCursor)
+    
+    post_id = request.json.get('post_id')
+    content = request.json.get('content')
+    
+    if not post_id or not content:
+        return jsonify({'message': 'Missing post ID or content'}), 400
+
+    # 插入评论到数据库
+    current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        cursor.execute(
+            'INSERT INTO comments (post_id, user_email, content, created_at) VALUES (%s, %s, %s, %s)',
+            (post_id, current_user_email, content, current_time)
+        )
+        conn.commit()
+        return jsonify({'message': 'Comment added successfully'}), 201
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'message': str(e)}), 500
+    
+
+
+@posts.route('/user', methods=['GET'])
+@token_required
+def get_specific_user_posts(current_user_email):
+    username = request.args.get('username', type=str)
+    if not username:
+        return jsonify({'message': 'Username is required'}), 400
+
+    print(f"Fetching posts for username: {username}")  # 添加日誌打印
+    conn = db_connection()
+    cursor = conn.cursor(DictCursor)
+    
+    # Find user email by username
+    cursor.execute('SELECT email FROM users WHERE username = %s', (username,))
+    user = cursor.fetchone()
+    if not user:
+        return jsonify({'message': 'User not found'}), 404
+
+    user_email = user['email']
+
+    # Fetch posts and their images for the specified user
+    cursor.execute('''
+        SELECT p.id, p.content, p.created_at, p.user_email, u.username, pi.image_url
+        FROM posts AS p
+        JOIN users AS u ON p.user_email = u.email
+        LEFT JOIN post_images AS pi ON p.id = pi.post_id
+        WHERE p.user_email = %s
+        ORDER BY p.created_at DESC;
+    ''', (user_email,))
+    posts = cursor.fetchall()
+
+    print(f"Fetched posts: {posts}")  # 添加日誌打印
+
+    # Build the response data structure
+    posts_by_id = {}
+    for post in posts:
+        if post['id'] in posts_by_id:
+            posts_by_id[post['id']]['images_urls'].append(post['image_url'])
+        else:
+            post['images_urls'] = [post['image_url']] if post['image_url'] else []
+            posts_by_id[post['id']] = post
+
+    # Fetch comments for each post
+    for post_id, post in posts_by_id.items():
+        cursor.execute('''
+            SELECT c.id, c.user_email, c.content, c.created_at, u.username
+            FROM comments AS c
+            JOIN users AS u ON c.user_email = u.email
+            WHERE c.post_id = %s
+            ORDER BY c.created_at ASC
+        ''', (post_id,))
+        comments = cursor.fetchall()
+        post['comments'] = comments
+
+    return jsonify(list(posts_by_id.values()))

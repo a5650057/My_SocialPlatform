@@ -30,11 +30,11 @@
 
           <v-col cols="12" md="8">
             <v-btn @click="dialog = true" class="mb-2 mr-3">新增貼文</v-btn>
-            <v-btn @click="$router.push('/profile')" class="mb-2">追蹤頁面</v-btn>
+            <v-btn @click="goToProfile" class="mb-2">主頁</v-btn>
 
             <v-dialog v-model="dialog" persistent max-width="600px">
               <v-card>
-                <v-card-title>分享新鮮事</v-card-title>
+                <v-card-title>分享</v-card-title>
                 <v-card-text>
                   <v-textarea
                     v-model="newPostContent"
@@ -60,40 +60,46 @@
 
             <v-card class="mb-2" v-for="post in posts" :key="post.id">
               <v-card-title>
-                <div class="d-flex justify-space-between align-center w-100">
-                  <span class="blue--text font-weight-bold">{{ post.username }} :</span>
-                </div>
-              </v-card-title>
-              <v-card-text>{{ post.content }}</v-card-text>
-              <div v-if="post.images_urls && post.images_urls.length > 0">
-                <v-img
-                  v-for="(imageUrl, index) in post.images_urls"
-                  :key="index"
-                  :src="imageUrl"
-                  class="ma-5 image-border"
-                  aspect-ratio="1" 
-                  width="300"
-                  height="300"
-                  @click="openImageDialog(imageUrl)"
-                ></v-img>
-              </div>
-
-              <v-card-subtitle>{{ post.created_at }}</v-card-subtitle>
-              <v-btn
-                v-if="post.user_email === userEmail"
-                icon
-                color="red"
-                @click="deletePost(post.id)"
-                class="ml-20 mr-2"
-              >
-                <v-icon>mdi-delete</v-icon>
-              </v-btn>
+    <div class="d-flex justify-space-between align-center w-100">
+      <span class="blue--text font-weight-bold">{{ post.username }} :</span>
+    </div>
+  </v-card-title>
+  <v-card-text>{{ post.content }}</v-card-text>
+  <div v-if="post.images_urls && post.images_urls.length > 0">
+    <v-row>
+      <v-col
+        v-for="(imageUrl, index) in post.images_urls"
+        :key="index"
+        cols="auto"
+        class="d-flex justify-center"
+      >
+        <v-img
+          :src="imageUrl"
+          class="ma-5 image-border"
+          aspect-ratio="1"
+          width="300"
+          height="300"
+          @click="openImageDialog(imageUrl)"
+        ></v-img>
+      </v-col>
+    </v-row>
+  </div>
+  <v-card-subtitle>{{ post.created_at }}</v-card-subtitle>
+  <v-btn
+    v-if="post.user_email === userEmail"
+    icon
+    color="red"
+    @click="deletePost(post.id)"
+    class="ml-20 mr-2"
+  >
+    <v-icon>mdi-delete</v-icon>
+  </v-btn>
 
               <v-list dense>
                 <v-subheader>留言</v-subheader>
                 <v-list-item v-for="comment in post.comments" :key="comment.id">
                   <v-list-item-content>
-                    <v-list-item-title>{{ comment.user_email }}</v-list-item-title>
+                    <v-list-item-title :style="{ fontSize: '16px', fontWeight: 'bold' }">{{ comment.username }}</v-list-item-title>
                     <v-list-item-subtitle>{{ comment.content }}</v-list-item-subtitle>
                   </v-list-item-content>
                 </v-list-item>
@@ -237,7 +243,12 @@ export default {
     },
 
     goToProfile() {
-      this.$router.push("/profile");
+      const username = localStorage.getItem("username");
+      if (username) {
+        this.$router.push(`/profile/${username}`);
+      } else {
+        console.error("No username found in localStorage.");
+      }
     },
     followUser(email) {
       console.log("Following user with email: ", email);
@@ -248,7 +259,7 @@ export default {
 
 <style scoped>
 .image-border {
-  border: 2px solid #000; /* 設置邊框顏色和寬度 */
+  border: 4px solid #000000; /* 設置邊框顏色和寬度 */
   border-radius: 5px; /* 如果需要圓角，可以設置邊框圓角 */
   box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.1); /* 可選：添加陰影效果 */
 }

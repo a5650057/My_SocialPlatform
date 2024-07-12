@@ -14,7 +14,8 @@ Vue.use(VueDarkMode, {
 });
 
 const http = axios.create({
-  baseURL: "http://127.0.0.1:5000",
+  // baseURL: "http://127.0.0.1:5000",
+  baseURL: "http://127.0.0.1:8080/api", // 使用 NGINX 反向代理後的路徑
   timeout: 10000,
 });
 
@@ -38,6 +39,7 @@ http.interceptors.response.use(
   (error) => {
     if (error.response && error.response.status === 401) {
       localStorage.removeItem("token");
+      localStorage.removeItem("username");
       if (router.currentRoute.path !== "/login") {
         router.push("/login");
       }
