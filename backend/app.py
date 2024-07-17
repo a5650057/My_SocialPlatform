@@ -29,5 +29,5 @@ app.register_blueprint(posts, url_prefix="/posts")
 
 
 if __name__ == "__main__":
-
-    app.run(debug=args.dev)
+    app.run(host='0.0.0.0', port=5000,debug=args.dev)
+    # app.run(debug=args.dev)

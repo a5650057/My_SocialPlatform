@@ -37,80 +37,95 @@ CORS(posts)
 @posts.route('/posts', methods=['GET'])
 @token_required
 def get_posts(current_user_email):
-    conn = db_connection()
-    cursor = conn.cursor(DictCursor)
+    try:
+        conn = db_connection()
+        cursor = conn.cursor(DictCursor)
+    
+    except Exception as e:
+        print(f"Database connection error: {e}")
+        cursor = None
 
+    # 獲取當前用戶的 feed 列表
     feed_key = f'feed:{current_user_email}'
     post_ids = redis_client.lrange(feed_key, 0, -1)
     posts = []
 
     # 檢查並收集來自Redis的帖子數據
     for post_id in post_ids:
-        post_data = redis_client.hgetall(f'post:{post_id.decode("utf-8")}')
+        post_id_str = post_id.decode('utf-8')
+        post_data = redis_client.hgetall(f'post:{post_id_str}')
         if post_data:
+            # 從 Redis 中獲取貼文數據並解碼
             post = {k.decode('utf-8'): v.decode('utf-8') for k, v in post_data.items()}
             post['images_urls'] = json.loads(post['images_urls']) if 'images_urls' in post and post['images_urls'] else []
-            # 獲取該帖子的評論
-            cursor.execute('''
-                SELECT c.id, c.user_email, c.content, c.created_at, u.username
-                FROM comments AS c
-                JOIN users AS u ON c.user_email = u.email
-                WHERE c.post_id = %s
-                ORDER BY c.created_at ASC
-            ''', (post_id,))
-            comments = cursor.fetchall()
-            post['comments'] = comments
+
+            # 獲取該帖子的評論（先嘗試從 Redis 獲取）
+            comments_key = f'post:{post_id_str}:comments'
+            comments = redis_client.lrange(comments_key, 0, -1)
+            if comments:
+                post['comments'] = [json.loads(comment.decode('utf-8')) for comment in comments]
+            else:
+                # 如果 Redis 中沒有評論，嘗試從數據庫中獲取並更新到 Redis
+                if cursor:
+                    try:
+                        cursor.execute('''
+                            SELECT c.id, c.user_email, c.content, c.created_at, u.username
+                            FROM comments AS c
+                            JOIN users AS u ON c.user_email = u.email
+                            WHERE c.post_id = %s
+                            ORDER BY c.created_at ASC
+                        ''', (post_id,))
+                        comments = cursor.fetchall()
+                        post['comments'] = comments
+                        for comment in comments:
+                            comment = {k: (v.strftime('%Y-%m-%d %H:%M:%S') if isinstance(v, datetime) else v) for k, v in comment.items()}
+                            redis_client.rpush(comments_key, json.dumps(comment))
+                    except Exception as e:
+                        print(f"Database error: {e}")
+                        post['comments'] = []
+                else:
+                    post['comments'] = []
+
             posts.append(post)
+        else:
+            # 如果 Redis 中沒有相應的貼文，嘗試從數據庫中獲取
+            if cursor:
+                try:
+                    cursor.execute('''
+                        SELECT p.id, p.content, p.created_at, p.user_email, u.username
+                        FROM posts AS p
+                        JOIN users AS u ON p.user_email = u.email
+                        WHERE p.id = %s
+                    ''', (post_id_str,))
+                    post = cursor.fetchone()
+                    if post:
+                        post_id = post['id']
+                        cursor.execute('SELECT image_url FROM post_images WHERE post_id = %s', (post_id,))
+                        images = cursor.fetchall()
+                        post['images_urls'] = [image['image_url'] for image in images]
+                        cursor.execute('''
+                            SELECT c.id, c.user_email, c.content, c.created_at, u.username
+                            FROM comments AS c
+                            JOIN users AS u ON c.user_email = u.email
+                            WHERE c.post_id = %s
+                            ORDER BY c.created_at ASC
+                        ''', (post_id,))
+                        comments = cursor.fetchall()
+                        post['comments'] = comments
 
-    # 獲取當前用戶及其關注的人的email列表
-    cursor.execute(
-        '''
-        SELECT followed_id FROM follows WHERE follower_id = %s
-        UNION ALL
-        SELECT %s AS followed_id
-        ''', (current_user_email, current_user_email)
-    )
-    following_emails = [row['followed_id'] for row in cursor.fetchall()]
-
-    placeholders = ','.join(['%s'] * len(following_emails))
-    query = f'''
-        SELECT p.id, p.content, p.created_at, p.user_email, u.username
-        FROM posts AS p
-        JOIN users AS u ON p.user_email = u.email
-        WHERE p.user_email IN ({placeholders})
-        ORDER BY p.created_at DESC
-    '''
-    params = following_emails
-    cursor.execute(query, params)
-    additional_posts = cursor.fetchall()
-
-    # 處理並更新缺失的帖子數據
-    for post in additional_posts:
-        post_id = post['id']
-        cursor.execute('SELECT image_url FROM post_images WHERE post_id = %s', (post_id,))
-        images = cursor.fetchall()
-        post['images_urls'] = [image['image_url'] for image in images]
-        # 獲取該帖子的評論
-        cursor.execute('''
-            SELECT c.id, c.user_email, c.content, c.created_at, u.username
-            FROM comments AS c
-            JOIN users AS u ON c.user_email = u.email
-            WHERE c.post_id = %s
-            ORDER BY c.created_at ASC
-        ''', (post_id,))
-        comments = cursor.fetchall()
-        post['comments'] = comments
-
-        post_info = {k: str(v) if not isinstance(v, datetime) else v.strftime('%Y-%m-%d %H:%M:%S') for k, v in post.items()}
-        post_info['images_urls'] = post['images_urls'] 
-
-        # 更新Redis中的數據
-        redis_client.hset(f'post:{post_info["id"]}', mapping={**post_info, 'images_urls': json.dumps(post_info['images_urls'])})
-
-        if post_info['id'] not in [p['id'] for p in posts]:
-            posts.append(post_info)
+                        post_info = {k: str(v) if not isinstance(v, datetime) else v.strftime('%Y-%m-%d %H:%M:%S') for k, v in post.items()}
+                        post_info['images_urls'] = post['images_urls']
+                        redis_client.hset(f'post:{post_id_str}', mapping={**post_info, 'images_urls': json.dumps(post_info['images_urls'])})
+                        for comment in comments:
+                            comment = {k: (v.strftime('%Y-%m-%d %H:%M:%S') if isinstance(v, datetime) else v) for k, v in comment.items()}
+                            redis_client.rpush(f'post:{post_id_str}:comments', json.dumps(comment))
+                        posts.append(post_info)
+                except Exception as e:
+                    print(f"Database error: {e}")
+                    continue
 
     return jsonify(posts)
+
 
 
 
@@ -123,47 +138,41 @@ def create_post(current_user_email):
 
     if 'content' not in request.form:
         return jsonify({'message': 'No content provided'}), 400
-    
-
     # 验证用户是否存在
     cursor.execute('SELECT email, username FROM users WHERE email = %s', (current_user_email,))
     user = cursor.fetchone()
     if not user:
         return jsonify({'message': 'User not found'}), 403
-
-    
-
-
     content = request.form['content']
-    # 插入新帖子到数据库
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     post = PostService(current_user_email,content, cursor)
     post_id, current_time = post.insert_post()
     images_urls = PostService.save_images(post_id, request.files, cursor)
     conn.commit()
-    
-    # 获取当前用户的所有追踪者
     cursor.execute('SELECT follower_id FROM follows WHERE followed_id = %s UNION SELECT %s AS follower_id', (current_user_email, current_user_email))
     followers = cursor.fetchall()
 
-    # 缓存帖子信息到 Redis
     post_info = {
         'id': str(post_id),
         'content': content,
         'created_at': current_time,
         'user_email': current_user_email,
         'username': user['username'],
-        'images_urls': json.dumps(images_urls)  # 将图片URL列表序列化为JSON字符串
+        'images_urls': json.dumps(images_urls)
     }
+
+    print(f"Creating post with ID: {post_id} for user: {current_user_email}")
+    print(f"Post info: {post_info}")
     if redis_client:
         redis_client.hset(f'post:{post_id}', mapping=post_info)
         for follower in followers:
-            redis_client.lpush(f'feed:{follower["follower_id"]}', str(post_id))
+            follower_id = follower["follower_id"]
+            print(f"Adding post {post_id} to follower {follower_id}'s feed")
+            result = redis_client.lpush(f'feed:{follower_id}', str(post_id))
+            print(f"Result of LPUSH to feed:{follower_id}: {result}")
 
     return jsonify({'message': 'Post created successfully', 'post_id': post_id, 'images_urls': images_urls}), 201
-
-
 
 
 
@@ -239,11 +248,41 @@ def add_comment(current_user_email):
             (post_id, current_user_email, content, current_time)
         )
         conn.commit()
+
+        # 獲取剛插入的評論的ID
+        comment_id = cursor.lastrowid
+
+        # 將評論寫入 Redis
+        comment = {
+            'id': comment_id,
+            'user_email': current_user_email,
+            'content': content,
+            'created_at': current_time,
+            'username': get_username(current_user_email)  # 獲取用戶名
+        }
+        comments_key = f'post:{post_id}:comments'
+        redis_client.rpush(comments_key, json.dumps(comment))
+
         return jsonify({'message': 'Comment added successfully'}), 201
     except Exception as e:
         conn.rollback()
         return jsonify({'message': str(e)}), 500
-    
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def get_username(user_email):
+    conn = db_connection()
+    cursor = conn.cursor(DictCursor)
+    cursor.execute('SELECT username FROM users WHERE email = %s', (user_email,))
+    user = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    if user:
+        return user['username']
+    return None
+
 
 
 @posts.route('/user', methods=['GET'])
