@@ -213,7 +213,8 @@ def delete_post(current_user_email, post_id):
 
     # 从 Redis 中删除帖子信息
     redis_client.delete(f'post:{post_id}')
-
+  
+    redis_client.delete(f'post:{post_id}:comments')
     # 从当前用户及其关注者的 feed 中移除帖子ID
     # 首先找出所有关注当前用户的人
     cursor.execute("SELECT follower_id FROM follows WHERE followed_id = %s", (current_user_email,))
