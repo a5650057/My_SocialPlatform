@@ -24,6 +24,7 @@ from datetime import datetime
 from uuid import uuid4
 from werkzeug.utils import secure_filename
 from models.PostService import PostService
+import time 
 
 redis_client = redis_manager.get_client()
 
@@ -33,14 +34,12 @@ CORS(posts)
 
 
 
-
 @posts.route('/posts', methods=['GET'])
 @token_required
 def get_posts(current_user_email):
     try:
         conn = db_connection()
         cursor = conn.cursor(DictCursor)
-    
     except Exception as e:
         print(f"Database connection error: {e}")
         cursor = None
@@ -49,6 +48,36 @@ def get_posts(current_user_email):
     feed_key = f'feed:{current_user_email}'
     post_ids = redis_client.lrange(feed_key, 0, -1)
     posts = []
+
+
+    # 如果 feed 清單為空，直接從資料庫中取得目前使用者及其追蹤使用者的帖子
+    if not post_ids:
+        if cursor:
+            cursor.execute('''
+                SELECT p.id, p.content, p.created_at, p.user_email, u.username
+                FROM posts AS p
+                JOIN users AS u ON p.user_email = u.email
+                WHERE p.user_email = %s OR p.user_email IN (
+                    SELECT followed_id FROM follows WHERE follower_id = %s
+                )
+                ORDER BY p.created_at DESC
+            ''', (current_user_email, current_user_email))
+            posts_from_db = cursor.fetchall()
+            for post in posts_from_db:
+                post_id = post['id']
+                cursor.execute('SELECT image_url FROM post_images WHERE post_id = %s', (post_id,))
+                images = cursor.fetchall()
+                post['images_urls'] = [image['image_url'] for image in images]
+                cursor.execute('''
+                    SELECT c.id, c.user_email, c.content, c.created_at, u.username
+                    FROM comments AS c
+                    JOIN users AS u ON c.user_email = u.email
+                    WHERE c.post_id = %s
+                    ORDER BY c.created_at ASC
+                ''', (post_id,))
+                comments = cursor.fetchall()
+                post['comments'] = comments
+                posts.append(post)
 
     # 檢查並收集來自Redis的帖子數據
     for post_id in post_ids:
@@ -122,10 +151,8 @@ def get_posts(current_user_email):
                         posts.append(post_info)
                 except Exception as e:
                     print(f"Database error: {e}")
-                    continue
-
+                    continue      
     return jsonify(posts)
-
 
 
 
@@ -138,7 +165,8 @@ def create_post(current_user_email):
 
     if 'content' not in request.form:
         return jsonify({'message': 'No content provided'}), 400
-    # 验证用户是否存在
+    
+    # 驗證使用者是否存在
     cursor.execute('SELECT email, username FROM users WHERE email = %s', (current_user_email,))
     user = cursor.fetchone()
     if not user:
@@ -187,7 +215,7 @@ def delete_post(current_user_email, post_id):
     conn = db_connection()
     cursor = conn.cursor(DictCursor)
 
-    # 检查帖子是否存在并且归当前用户所有
+    #  檢查貼文是否存在並且歸目前使用者所有
     cursor.execute("SELECT * FROM posts WHERE id = %s AND user_email = %s", (post_id, current_user_email))
     post = cursor.fetchone()
 
@@ -205,26 +233,26 @@ def delete_post(current_user_email, post_id):
             os.remove(file_path)
   
 
-    # 从数据库中删除帖子
+    # 從資料庫中刪除帖子
     cursor.execute("DELETE FROM post_images WHERE post_id = %s", (post_id,))
     conn.commit()
     cursor.execute("DELETE FROM posts WHERE id = %s", (post_id,))
     conn.commit()
 
-    # 从 Redis 中删除帖子信息
+    # 從 Redis 中刪除貼文訊息
     redis_client.delete(f'post:{post_id}')
   
     redis_client.delete(f'post:{post_id}:comments')
-    # 从当前用户及其关注者的 feed 中移除帖子ID
-    # 首先找出所有关注当前用户的人
+    # 從目前使用者及其追蹤者的 feed 中移除貼文ID
+    # 首先找出所有關注目前使用者的人
     cursor.execute("SELECT follower_id FROM follows WHERE followed_id = %s", (current_user_email,))
     followers = cursor.fetchall()
 
-    # 对于每个关注者，从他们的 feed 中移除帖子ID
+    # 對於每個追蹤者，從他們的 feed 中移除貼文ID
     for follower in followers:
         redis_client.lrem(f'feed:{follower["follower_id"]}', 1, post_id)
 
-    # 同时也需要从当前用户自己的 feed 中移除帖子ID
+    # 同時也需要從目前使用者自己的 feed 中移除貼文ID
     redis_client.lrem(f'feed:{current_user_email}', 1, post_id)
 
     return jsonify({'message': 'Post deleted successfully'}), 200
@@ -241,7 +269,7 @@ def add_comment(current_user_email):
     if not post_id or not content:
         return jsonify({'message': 'Missing post ID or content'}), 400
 
-    # 插入评论到数据库
+    # 插入評論到資料庫
     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     try:
         cursor.execute(
@@ -293,7 +321,7 @@ def get_specific_user_posts(current_user_email):
     if not username:
         return jsonify({'message': 'Username is required'}), 400
 
-    print(f"Fetching posts for username: {username}")  # 添加日誌打印
+    print(f"Fetching posts for username: {username}")  
     conn = db_connection()
     cursor = conn.cursor(DictCursor)
     
@@ -316,7 +344,7 @@ def get_specific_user_posts(current_user_email):
     ''', (user_email,))
     posts = cursor.fetchall()
 
-    print(f"Fetched posts: {posts}")  # 添加日誌打印
+    print(f"Fetched posts: {posts}")  
 
     # Build the response data structure
     posts_by_id = {}

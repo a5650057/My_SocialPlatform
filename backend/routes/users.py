@@ -210,7 +210,6 @@ def get_recommended_users():
     users = cursor.fetchall()
     return jsonify(users)
 
-
 @users.route("/follow", methods=["POST"])
 @token_required  # 使用装饰器自动处理Token验证和用户识别
 def follow_user(current_user_email):
@@ -219,14 +218,18 @@ def follow_user(current_user_email):
     data = request.json
     followed_email = data["followed_email"]
     follower_email = current_user_email
+
+    # 检查当前用户是否存在
     cursor.execute("SELECT * FROM users WHERE email = %s", (follower_email,))
     if not cursor.fetchone():
         return jsonify({"error": "Follower not found"}), 404
 
+    # 检查被关注用户是否存在
     cursor.execute("SELECT * FROM users WHERE email = %s", (followed_email,))
     if not cursor.fetchone():
         return jsonify({"error": "Followed user not found"}), 404
 
+    # 检查是否已经关注
     cursor.execute(
         "SELECT * FROM follows WHERE follower_id = %s AND followed_id = %s",
         (follower_email, followed_email),
@@ -234,15 +237,41 @@ def follow_user(current_user_email):
     if cursor.fetchone():
         return jsonify({"error": "Already following"}), 409
 
-    
+    # 插入关注关系
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cursor.execute(
         "INSERT INTO follows (follower_id, followed_id, created_at) VALUES (%s, %s, %s)",
         (follower_email, followed_email, current_time),
     )
     conn.commit()
+ # 获取被关注用户的所有帖子
+    cursor.execute('''
+        SELECT p.id, p.content, p.created_at, p.user_email, u.username
+        FROM posts AS p
+        JOIN users AS u ON p.user_email = u.email
+        WHERE p.user_email = %s
+        ORDER BY p.created_at DESC
+    ''', (followed_email,))
+    posts = cursor.fetchall()
+
+    # 将这些帖子添加到当前用户的feed中，并将帖子数据添加到Redis
+    for post in posts:
+        post_id = post['id']
+        post_for_redis = convert_post_to_redis_format(post)
+
+        # 获取与帖子的相关图片
+        cursor.execute('SELECT image_url FROM post_images WHERE post_id = %s', (post_id,))
+        images = cursor.fetchall()
+        post_for_redis['images_urls'] = json.dumps([image['image_url'] for image in images])  # 转换为JSON字符串
+
+        # 将帖子信息添加到Redis
+        redis_client.hset(f'post:{post_id}', mapping=post_for_redis)
+        
+        # 将帖子ID添加到当前用户的feed中
+        redis_client.lpush(f'feed:{follower_email}', str(post_id))
 
     return jsonify({"status": "success"})
+
 
 @users.route('/following', methods=['GET'])
 @token_required
