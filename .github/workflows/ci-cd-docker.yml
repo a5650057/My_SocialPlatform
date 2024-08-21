@@ -1,0 +1,51 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      mariadb:
+        image: mariadb
+        env:
+          MYSQL_ROOT_PASSWORD: example
+        ports:
+          - 3306:3306
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Start services with Docker Compose
+      run: |
+        docker-compose up -d db redis
+
+    - name: Build and start Flask and Vue.js
+      run: |
+        docker-compose up -d --build flaskapp vue-frontend
+
+    - name: Wait for databases to be fully up
+      uses: jakejarvis/wait-action@master
+      with:
+        time: '20s'
+
+    - name: Run backend tests
+      run: |
+        docker-compose exec flaskapp pytest /app/tests
+
+    - name: Run frontend tests
+      run: |
+        docker-compose exec vue-frontend npm test
+
+    - name: Check phpMyAdmin is up
+      run: |
+        curl -I http://localhost:80
+
+    - name: Shutdown and cleanup
+      run: |
+        docker-compose down
